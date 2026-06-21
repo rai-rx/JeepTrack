@@ -734,7 +734,7 @@ const LogExpensesView = ({units,logs,onAdd,onDelete,lockedUnit=false}:{units:Uni
                   <thead><tr className="border-b border-border bg-secondary/50">{["Unit","Date","Earnings","Expenses","Net","Category","Notes",""].map(h=><th key={h} className="text-left px-4 py-2.5 text-[10px] font-mono text-muted-foreground tracking-widest uppercase whitespace-nowrap">{h}</th>)}</tr></thead>
                   <tbody>{recentLogs.map(l=>{const u=units.find(x=>x.id===l.unitId),n=l.earnings-l.expenses-(u?.boundary??0),isDel=deletingId===l.id;return(
                     <tr key={l.id} className={`border-b border-border/60 hover:bg-secondary/30 transition-colors ${isDel?"opacity-40":""}`}>
-                      <td className="px-4 py-2.5 font-mono font-medium text-[11px]">{u?.plate??"—"}</td>
+                      <td className="px-4 py-2.5 font-mono font-medium text-[11px]">{u ? `${u.plate ?? "—"} - ${u.driver ?? "No Driver"}` : "—"}</td>
                       <td className="px-4 py-2.5 font-mono text-muted-foreground">{l.date}</td>
                       <td className="px-4 py-2.5 font-mono text-emerald-700">{fmtPHP(l.earnings)}</td>
                       <td className="px-4 py-2.5 font-mono text-amber-600">{fmtPHP(l.expenses)}</td>

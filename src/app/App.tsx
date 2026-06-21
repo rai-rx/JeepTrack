@@ -53,7 +53,20 @@ const uid       = () => crypto.randomUUID();
 const todayStr  = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 const fmtPHP    = (n:number) => { const s=`₱${Math.abs(n).toLocaleString()}`; return n<0?`-${s}`:s; };
 const fmtPHPc   = (n:number) => { const a=Math.abs(n); const s=a>=1e6?`₱${(a/1e6).toFixed(1)}M`:a>=1000?`₱${(a/1000).toFixed(0)}k`:`₱${a}`; return n<0?`-${s}`:s; };
-const unitNet   = (uid_:string, logs:LogEntry[], units:Unit[]) => { const u=units.find(x=>x.id===uid_); if(!u) return 0; return logs.filter(l=>l.unitId===uid_).reduce((s,l)=>s+l.earnings-l.expenses-u.boundary,0); };
+const entryNet   = (log:LogEntry, unit?:Unit) => {
+  const boundary = unit?.boundary ?? 0;
+  const gross = log.earnings - log.expenses;
+  return log.earnings >= boundary ? gross - boundary : gross;
+};
+const entryCost  = (log:LogEntry, unit?:Unit) => {
+  const boundary = unit?.boundary ?? 0;
+  return log.earnings >= boundary ? log.expenses + boundary : log.expenses;
+};
+const unitNet   = (uid_:string, logs:LogEntry[], units:Unit[]) => {
+  const u=units.find(x=>x.id===uid_);
+  if(!u) return 0;
+  return logs.filter(l=>l.unitId===uid_).reduce((s,l)=>s+entryNet(l,u),0);
+};
 const unitStatus= (uid_:string, logs:LogEntry[], units:Unit[]): "profitable"|"money-pit" => unitNet(uid_,logs,units)>=0?"profitable":"money-pit";
 
 // ─── Jeepney Icon ─────────────────────────────────────────────────────────────
@@ -223,7 +236,7 @@ const DashboardView = ({units,logs}:{units:Unit[];logs:LogEntry[]}) => {
   const [filter,setFilter] = useState<"all"|"profitable"|"money-pit">("all");
   const enriched = useMemo(()=>units.map(u=>{
     const uLogs=logs.filter(l=>l.unitId===u.id);
-    const net=uLogs.reduce((s,l)=>s+l.earnings-l.expenses-u.boundary,0);
+    const net=uLogs.reduce((s,l)=>s+entryNet(l,u),0);
     const status:("profitable"|"money-pit")=net>=0?"profitable":"money-pit";
     const now=new Date();
     const sparkline=Array.from({length:6},(_,i)=>{
@@ -545,7 +558,7 @@ const MonthCalendar = ({year,month,logs,unit,onDayClick,selectedDate}:{year:numb
   const cells:(number|null)[]=[...Array(first).fill(null),...Array.from({length:dim},(_,i)=>i+1)];
   while(cells.length%7!==0) cells.push(null);
   const ds:Record<number,"green"|"red">={};
-  if(unit){for(let d=1;d<=dim;d++){const s=`${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;const dl=logs.filter(l=>l.unitId===unit.id&&l.date===s);if(dl.length){const n=dl.reduce((sum,l)=>sum+l.earnings-l.expenses-unit.boundary,0);ds[d]=n>=0?"green":"red";}}}
+  if(unit){for(let d=1;d<=dim;d++){const s=`${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;const dl=logs.filter(l=>l.unitId===unit.id&&l.date===s);if(dl.length){const n=dl.reduce((sum,l)=>sum+entryNet(l,unit),0);ds[d]=n>=0?"green":"red";}}}
   const td=new Date(),itm=td.getFullYear()===year&&td.getMonth()===month;
   return (
     <div>
@@ -712,7 +725,9 @@ const LogExpensesView = ({units,logs,onAdd,onDelete,lockedUnit=false}:{units:Uni
           : <>
               <div className="lg:hidden divide-y divide-border/60">
                 {recentLogs.map(l=>{
-                  const u=units.find(x=>x.id===l.unitId),n=l.earnings-l.expenses-(u?.boundary??0),isDel=deletingId===l.id;
+                  const u=units.find(x=>x.id===l.unitId);
+                  const n=entryNet(l,u);
+                  const isDel=deletingId===l.id;
                   return(
                     <div key={l.id} className={`px-4 py-3 transition-opacity ${isDel?"opacity-40":""}`}>
                       <div className="flex items-start justify-between gap-2 mb-2">
@@ -732,7 +747,7 @@ const LogExpensesView = ({units,logs,onAdd,onDelete,lockedUnit=false}:{units:Uni
               <div className="hidden lg:block overflow-x-auto">
                 <table className="w-full text-[12px]">
                   <thead><tr className="border-b border-border bg-secondary/50">{["Unit","Date","Earnings","Expenses","Net","Category","Notes",""].map(h=><th key={h} className="text-left px-4 py-2.5 text-[10px] font-mono text-muted-foreground tracking-widest uppercase whitespace-nowrap">{h}</th>)}</tr></thead>
-                  <tbody>{recentLogs.map(l=>{const u=units.find(x=>x.id===l.unitId),n=l.earnings-l.expenses-(u?.boundary??0),isDel=deletingId===l.id;return(
+                  <tbody>{recentLogs.map(l=>{const u=units.find(x=>x.id===l.unitId);const n=entryNet(l,u);const isDel=deletingId===l.id;return(
                     <tr key={l.id} className={`border-b border-border/60 hover:bg-secondary/30 transition-colors ${isDel?"opacity-40":""}`}>
                       <td className="px-4 py-2.5 font-mono font-medium text-[11px]">{u ? `${u.plate ?? "—"} - ${u.driver ?? "No Driver"}` : "—"}</td>
                       <td className="px-4 py-2.5 font-mono text-muted-foreground">{l.date}</td>
@@ -757,10 +772,12 @@ const LogExpensesView = ({units,logs,onAdd,onDelete,lockedUnit=false}:{units:Uni
 const PIE_COLORS=["#3B82F6","#F59E0B","#10B981","#8B5CF6","#EF4444","#EC4899"];
 
 const AnalyticsView = ({units,logs}:{units:Unit[];logs:LogEntry[]}) => {
-  const monthlyData=useMemo(()=>{const map:Record<string,{month:string;earnings:number;costs:number;net:number}>={};logs.forEach(l=>{const d=new Date(l.date),u=units.find(x=>x.id===l.unitId);const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;if(!map[key])map[key]={month:MONTH_NAMES[d.getMonth()].slice(0,3)+" '"+String(d.getFullYear()).slice(2),earnings:0,costs:0,net:0};map[key].earnings+=l.earnings;map[key].costs+=l.expenses+(u?.boundary??0);});return Object.entries(map).sort(([a],[b])=>a.localeCompare(b)).slice(-6).map(([,v])=>({...v,net:v.earnings-v.costs}));},[logs,units]);
+  const monthlyData=useMemo(()=>{const map:Record<string,{month:string;earnings:number;costs:number;net:number}>={};logs.forEach(l=>{const d=new Date(l.date),u=units.find(x=>x.id===l.unitId);const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;if(!map[key])map[key]={month:MONTH_NAMES[d.getMonth()].slice(0,3)+" '"+String(d.getFullYear()).slice(2),earnings:0,costs:0,net:0};map[key].earnings+=l.earnings;map[key].costs+=entryCost(l,u);});return Object.entries(map).sort(([a],[b])=>a.localeCompare(b)).slice(-6).map(([,v])=>({...v,net:v.earnings-v.costs}));},[logs,units]);
   const unitNetData=useMemo(()=>units.map(u=>({plate:u.plate,net:unitNet(u.id,logs,units),color:u.color})).sort((a,b)=>b.net-a.net),[units,logs]);
   const catData=useMemo(()=>{const m:Record<string,number>={};logs.forEach(l=>{m[l.expenseCategory]=(m[l.expenseCategory]??0)+l.expenses;});return Object.entries(m).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);},[logs]);
-  const totalE=logs.reduce((s,l)=>s+l.earnings,0),totalC=logs.reduce((s,l)=>s+l.expenses+(units.find(u=>u.id===l.unitId)?.boundary??0),0),totalNet=totalE-totalC;
+  const totalE=logs.reduce((s,l)=>s+l.earnings,0);
+  const totalC=logs.reduce((s,l)=>s+entryCost(l,units.find(u=>u.id===l.unitId)),0);
+  const totalNet=totalE-totalC;
   const best=unitNetData[0],worst=unitNetData[unitNetData.length-1];
   if(!units.length||!logs.length) return <EmptyState icon={BarChart3} title="No data to analyze yet" sub="Add units and log expenses to see analytics."/>;
   return (
